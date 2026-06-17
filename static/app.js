@@ -1,6 +1,7 @@
 const productForm = document.getElementById('product-form');
 const productTableBody = document.getElementById('product-table-body');
 const refreshButton = document.getElementById('refresh-button');
+const downloadSalesButton = document.getElementById('download-sales-button');
 const clearHistoryButton = document.getElementById('clear-history-button');
 const messageBox = document.getElementById('message');
 const totalSalesCount = document.getElementById('sales-count');
@@ -142,6 +143,10 @@ productForm.addEventListener('submit', async (event) => {
     productForm.reset();
 });
 
+downloadSalesButton?.addEventListener('click', () => {
+    window.location.href = '/sales/download';
+});
+
 clearHistoryButton?.addEventListener('click', async () => {
     const confirmClear = confirm('Clear sales history? This cannot be undone.');
     if (!confirmClear) {
@@ -182,4 +187,117 @@ refreshButton.addEventListener('click', () => {
 window.addEventListener('load', () => {
     loadProducts();
     loadSalesSummary();
+    initBackgroundGraph();
 });
+
+const initBackgroundGraph = () => {
+    const canvas = document.getElementById('background-canvas');
+    if (!canvas) {
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    const points = [];
+    const POINT_COUNT = 36;
+    const LINE_DISTANCE = 190;
+    const SPEED = 0.32;
+    const CURSOR_RANGE = 250;
+    
+    let mouseX = canvas.width / 2;
+    let mouseY = canvas.height / 2;
+
+    const resize = () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    };
+
+    const randomBetween = (min, max) => Math.random() * (max - min) + min;
+
+    const createPoints = () => {
+        points.length = 0;
+        for (let i = 0; i < POINT_COUNT; i += 1) {
+            points.push({
+                x: randomBetween(0, canvas.width),
+                y: randomBetween(0, canvas.height),
+                vx: randomBetween(-SPEED, SPEED),
+                vy: randomBetween(-SPEED, SPEED),
+                radius: randomBetween(1.2, 2.8),
+            });
+        }
+    };
+
+    document.addEventListener('mousemove', (e) => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+    });
+
+    document.addEventListener('mouseleave', () => {
+        mouseX = canvas.width / 2;
+        mouseY = canvas.height / 2;
+    });
+
+    const animate = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        points.forEach((point, index) => {
+            const dx = mouseX - point.x;
+            const dy = mouseY - point.y;
+            const distToMouse = Math.sqrt(dx * dx + dy * dy);
+
+            if (distToMouse < CURSOR_RANGE) {
+                const force = (CURSOR_RANGE - distToMouse) / CURSOR_RANGE * 0.15;
+                point.vx += (dx / distToMouse) * force;
+                point.vy += (dy / distToMouse) * force;
+            }
+
+            point.vx *= 0.98;
+            point.vy *= 0.98;
+
+            point.x += point.vx;
+            point.y += point.vy;
+
+            if (point.x <= 0 || point.x >= canvas.width) {
+                point.vx *= -1;
+            }
+            if (point.y <= 0 || point.y >= canvas.height) {
+                point.vy *= -1;
+            }
+
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, point.radius * 1.5, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(122, 213, 111, 1)';
+            ctx.shadowColor = 'rgba(122, 213, 111, 0.7)';
+            ctx.shadowBlur = 10;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            for (let j = index + 1; j < points.length; j += 1) {
+                const other = points[j];
+                const dx = point.x - other.x;
+                const dy = point.y - other.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < LINE_DISTANCE) {
+                    const alpha = 1 - dist / LINE_DISTANCE;
+                    ctx.strokeStyle = `rgba(122, 213, 111, ${alpha * 0.65})`;
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(point.x, point.y);
+                    ctx.lineTo(other.x, other.y);
+                    ctx.stroke();
+                }
+            }
+        });
+
+        requestAnimationFrame(animate);
+    };
+
+    window.addEventListener('resize', () => {
+        resize();
+        createPoints();
+    });
+
+    resize();
+    createPoints();
+    animate();
+};

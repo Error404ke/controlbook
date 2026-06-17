@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+    <canvas id="background-canvas"></canvas>
     <div class="app-shell">
         <header>
             <h1>Control Book</h1>
@@ -39,7 +40,10 @@
         <section class="card sales-summary-card">
             <div class="section-header">
                 <h2>Sales Summary</h2>
-                <button id="clear-history-button">Clear History</button>
+                <div class="button-row">
+                    <button id="download-sales-button">Download Sold Items</button>
+                    <button id="clear-history-button">Clear History</button>
+                </div>
             </div>
             <div class="sales-metrics">
                 <div class="metric">

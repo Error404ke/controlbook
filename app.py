@@ -1,9 +1,11 @@
+import io
 import os
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_file
 from flask_pymongo import PyMongo
 from flask_cors import CORS
 from bson import ObjectId
+from openpyxl import Workbook
 import datetime
 
 app = Flask(__name__)
@@ -93,6 +95,57 @@ def get_total_sales():
         'totalRevenue': totals.get('totalRevenue', 0),
         'saleCount': totals.get('saleCount', 0)
     })
+
+
+@app.route('/sales/download', methods=['GET'])
+def download_sales():
+    sales = list(mongo.db.transactions.find({'type': 'sale'}).sort('date', 1))
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = 'Sold Items'
+    sheet.append(['Sale Date', 'Product ID', 'Product Name', 'Quantity', 'Unit Price', 'Revenue'])
+
+    total_revenue = 0
+    for sale in sales:
+        product_id = sale.get('product_id')
+        product_name = ''
+        if product_id:
+            product = mongo.db.products.find_one({'_id': product_id})
+            if product:
+                product_name = product.get('name', '')
+
+        sale_date = sale.get('date')
+        if isinstance(sale_date, datetime.datetime):
+            sale_date = sale_date.strftime('%Y-%m-%d %H:%M:%S')
+
+        quantity = sale.get('quantity', 0)
+        price = sale.get('price', 0)
+        revenue = sale.get('revenue', 0)
+        total_revenue += revenue or 0
+
+        sheet.append([
+            sale_date,
+            str(product_id) if product_id else '',
+            product_name,
+            quantity,
+            price,
+            revenue
+        ])
+
+    sheet.append([])
+    sheet.append(['', '', '', '', 'Total Revenue', total_revenue])
+
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        download_name='sold_items.xlsx',
+        as_attachment=True,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 
 @app.route('/history/clear', methods=['POST'])
