@@ -9,7 +9,7 @@ from openpyxl import Workbook
 import datetime
 
 app = Flask(__name__)
-app.config['MONGO_URI'] = 'mongodb://localhost:27017/msfavour'
+app.config['MONGO_URI'] = 'mongodb+srv://johndere404_db_user:19aZRvSFYlaguyQ5@cluster0.pgc5t8p.mongodb.net/msfavour'
 CLEAR_HISTORY_PIN = os.environ.get('CLEAR_HISTORY_PIN', '4598')
 mongo = PyMongo(app)
 CORS(app)
