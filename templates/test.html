@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Products</title>
+</head>
+<body>
+    <h1>Products from API</h1>
+    <div id="products"></div>
+    
+    <script>
+        fetch('/products')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('products');
+                container.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            })
+            .catch(error => {
+                document.getElementById('products').innerHTML = 'Error: ' + error;
+            });
+    </script>
+</body>
+</html>
