@@ -8,3 +8,5 @@ venv/
 *.sqlite
 .vscode/
 .idea/
+*.pyc
+.DS_Store
