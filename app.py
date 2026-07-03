@@ -1,55 +1,39 @@
+import io
 import os
-from dotenv import load_dotenv
-load_dotenv()
-import logging
 from flask import Flask, request, jsonify, render_template, send_file
-from flask_pymongo import PyMongo
 from flask_cors import CORS
 from bson import ObjectId
 from openpyxl import Workbook
 import datetime
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from pymongo import MongoClient
 
 app = Flask(__name__)
 
-# Configuration
-app.config['MONGO_URI'] = os.environ.get('MONGO_URI', 'mongodb://localhost:27017/msfavour')
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+# MongoDB connection
+MONGO_URI = os.environ.get('MONGO_URI', 'mongodb://localhost:27017/msfavour')
 
-# Get PIN from environment
-CLEAR_HISTORY_PIN = os.environ.get('CLEAR_HISTORY_PIN', '4598')
-
-# Initialize MongoDB
 try:
-    mongo = PyMongo(app)
-    mongo.db.command('ping')
-    logger.info("MongoDB connection successful!")
+    client = MongoClient(
+        MONGO_URI,
+        tls=True,
+        tlsAllowInvalidCertificates=True,
+        tlsAllowInvalidHostnames=True,
+        connectTimeoutMS=30000,
+        socketTimeoutMS=30000,
+        serverSelectionTimeoutMS=30000,
+        retryWrites=True,
+        w='majority'
+    )
+    # Test connection
+    client.admin.command('ping')
+    print("✅ MongoDB connection successful!")
+    db = client.msfavour
 except Exception as e:
-    logger.error(f"MongoDB connection failed: {e}")
+    print(f"❌ MongoDB connection failed: {e}")
+    db = None
 
+CLEAR_HISTORY_PIN = os.environ.get('CLEAR_HISTORY_PIN', '4598')
 CORS(app)
-
-# Error handlers
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({'error': 'Resource not found'}), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    logger.error(f"Internal server error: {error}")
-    return jsonify({'error': 'Internal server error'}), 500
-
-@app.errorhandler(Exception)
-def handle_exception(error):
-    logger.error(f"Unhandled exception: {error}")
-    return jsonify({'error': 'Something went wrong'}), 500
-
-@app.route('/')
-def home():
-    return render_template('index.html')
 
 def invalid_object_id(product_id):
     try:
@@ -72,27 +56,28 @@ def validate_json(required_fields):
 
     return data
 
+@app.route('/')
+def home():
+    return render_template('index.html')
+
 @app.route('/products', methods=['POST'])
 def add_product():
+    if db is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
     validation = validate_json(['name', 'category', 'quantity', 'price'])
     if isinstance(validation, tuple):
         return validation
 
     data = validation
-    
-    # Clean data
     data['name'] = data['name'].strip()
     data['category'] = data['category'].strip()
     
-    # Check if product exists (case-insensitive)
-    existing_product = mongo.db.products.find_one({
-        'name': {'$regex': f'^{data["name"]}$', '$options': 'i'}
-    })
-    
+    existing_product = db.products.find_one({'name': {'$regex': f'^{data["name"]}$', '$options': 'i'}})
     if existing_product:
         return jsonify({'message': 'Product already exists'}), 400
 
-    result = mongo.db.products.insert_one({
+    result = db.products.insert_one({
         'name': data['name'],
         'category': data['category'],
         'quantity': data['quantity'],
@@ -103,17 +88,22 @@ def add_product():
 
 @app.route('/products', methods=['GET'])
 def get_products():
+    if db is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
     try:
-        products = list(mongo.db.products.find())
+        products = list(db.products.find())
         for p in products:
             p['_id'] = str(p['_id'])
         return jsonify(products)
     except Exception as e:
-        logger.error(f"Error fetching products: {e}")
-        return jsonify({'error': 'Failed to fetch products'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/sales/total', methods=['GET'])
 def get_total_sales():
+    if db is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
     try:
         pipeline = [
             {'$match': {'type': 'sale'}},
@@ -126,7 +116,7 @@ def get_total_sales():
                 }
             }
         ]
-        result = list(mongo.db.transactions.aggregate(pipeline))
+        result = list(db.transactions.aggregate(pipeline))
         if not result:
             return jsonify({'totalItems': 0, 'totalRevenue': 0, 'saleCount': 0})
 
@@ -137,13 +127,15 @@ def get_total_sales():
             'saleCount': totals.get('saleCount', 0)
         })
     except Exception as e:
-        logger.error(f"Error fetching sales summary: {e}")
-        return jsonify({'error': 'Failed to fetch sales summary'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/sales/download', methods=['GET'])
 def download_sales():
+    if db is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
     try:
-        sales = list(mongo.db.transactions.find({'type': 'sale'}).sort('date', 1))
+        sales = list(db.transactions.find({'type': 'sale'}).sort('date', 1))
 
         workbook = Workbook()
         sheet = workbook.active
@@ -155,7 +147,7 @@ def download_sales():
             product_id = sale.get('product_id')
             product_name = ''
             if product_id:
-                product = mongo.db.products.find_one({'_id': product_id})
+                product = db.products.find_one({'_id': product_id})
                 if product:
                     product_name = product.get('name', '')
 
@@ -191,11 +183,13 @@ def download_sales():
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
     except Exception as e:
-        logger.error(f"Error downloading sales: {e}")
-        return jsonify({'error': 'Failed to download sales'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/history/clear', methods=['POST'])
 def clear_history():
+    if db is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
     validation = validate_json(['pin'])
     if isinstance(validation, tuple):
         return validation
@@ -203,11 +197,14 @@ def clear_history():
     if validation.get('pin') != CLEAR_HISTORY_PIN:
         return jsonify({'message': 'Invalid PIN'}), 401
 
-    mongo.db.transactions.delete_many({})
+    db.transactions.delete_many({})
     return jsonify({'message': 'Sales history cleared'}), 200
 
 @app.route('/sell/<product_id>', methods=['POST'])
 def sell_product(product_id):
+    if db is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
     if invalid_object_id(product_id):
         return jsonify({'message': 'Invalid product id'}), 400
 
@@ -217,7 +214,7 @@ def sell_product(product_id):
 
     data = validation
     quantity = data['quantity']
-    product = mongo.db.products.find_one({'_id': ObjectId(product_id)})
+    product = db.products.find_one({'_id': ObjectId(product_id)})
 
     if not product:
         return jsonify({'message': 'Product not found'}), 404
@@ -227,12 +224,12 @@ def sell_product(product_id):
     product_price = product.get('price', 0)
     revenue = quantity * product_price
 
-    mongo.db.products.update_one(
+    db.products.update_one(
         {'_id': ObjectId(product_id)}, 
         {'$inc': {'quantity': -quantity}}
     )
 
-    mongo.db.transactions.insert_one({
+    db.transactions.insert_one({
         'product_id': ObjectId(product_id),
         'type': 'sale',
         'quantity': quantity,
@@ -244,6 +241,9 @@ def sell_product(product_id):
 
 @app.route('/restock/<product_id>', methods=['POST'])
 def restock_product(product_id):
+    if db is None:
+        return jsonify({'error': 'Database not connected'}), 500
+    
     if invalid_object_id(product_id):
         return jsonify({'message': 'Invalid product id'}), 400
 
@@ -254,15 +254,15 @@ def restock_product(product_id):
     data = validation
     quantity = data['quantity']
 
-    product = mongo.db.products.find_one({'_id': ObjectId(product_id)})
+    product = db.products.find_one({'_id': ObjectId(product_id)})
     if not product:
         return jsonify({'message': 'Product not found'}), 404
 
-    mongo.db.products.update_one(
+    db.products.update_one(
         {'_id': ObjectId(product_id)}, 
         {'$inc': {'quantity': quantity}}
     )
-    mongo.db.transactions.insert_one({
+    db.transactions.insert_one({
         'product_id': ObjectId(product_id),
         'type': 'restock',
         'quantity': quantity,
@@ -271,4 +271,4 @@ def restock_product(product_id):
     return jsonify({'message': 'Product restocked'}), 200
 
 if __name__ == '__main__':
-    app.run(debug=False)  # Set debug=False for production
+    app.run(debug=False)
