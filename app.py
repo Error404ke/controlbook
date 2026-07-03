@@ -1,5 +1,6 @@
 import io
 import os
+import ssl
 from flask import Flask, request, jsonify, render_template, send_file
 from flask_cors import CORS
 from bson import ObjectId
@@ -9,10 +10,16 @@ from pymongo import MongoClient
 
 app = Flask(__name__)
 
-# MongoDB connection
+# MongoDB connection with proper SSL settings
 MONGO_URI = os.environ.get('MONGO_URI', 'mongodb://localhost:27017/msfavour')
 
 try:
+    # Create SSL context
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    
+    # Connect using the connection string
     client = MongoClient(
         MONGO_URI,
         tls=True,
@@ -20,9 +27,7 @@ try:
         tlsAllowInvalidHostnames=True,
         connectTimeoutMS=30000,
         socketTimeoutMS=30000,
-        serverSelectionTimeoutMS=30000,
-        retryWrites=True,
-        w='majority'
+        serverSelectionTimeoutMS=30000
     )
     # Test connection
     client.admin.command('ping')
