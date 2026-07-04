@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login - Control Book</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <style>
+        .auth-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .auth-container h2 {
+            text-align: center;
+            color: #7ad56f;
+            margin-bottom: 30px;
+        }
+        .auth-container input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+        }
+        .auth-container input:focus {
+            outline: none;
+            border-color: #7ad56f;
+        }
+        .auth-container button {
+            width: 100%;
+            padding: 12px;
+            margin: 20px 0 10px;
+            background: #7ad56f;
+            border: none;
+            border-radius: 8px;
+            color: #1a1a2e;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .auth-container button:hover {
+            background: #5cb85c;
+        }
+        .auth-container .error {
+            color: #ff6b6b;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .auth-container .link {
+            text-align: center;
+            color: #aaa;
+            margin-top: 15px;
+        }
+        .auth-container .link a {
+            color: #7ad56f;
+            text-decoration: none;
+        }
+        .auth-container .link a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="background-canvas"></canvas>
+    <div class="auth-container">
+        <h2>🔐 Login</h2>
+        {% if error %}
+            <div class="error">{{ error }}</div>
+        {% endif %}
+        <form method="POST">
+            <input type="text" name="username" placeholder="Username" required />
+            <input type="password" name="password" placeholder="Password" required />
+            <button type="submit">Login</button>
+        </form>
+        <div class="link">
+            Don't have an account? <a href="{{ url_for('register') }}">Register here</a>
+        </div>
+    </div>
+    <script>
+        // Background animation
+        const canvas = document.getElementById('background-canvas');
+        const ctx = canvas.getContext('2d');
+        const points = [];
+        const POINT_COUNT = 36;
+        const LINE_DISTANCE = 190;
+        const SPEED = 0.32;
+        const CURSOR_RANGE = 250;
+        
+        let mouseX = canvas.width / 2;
+        let mouseY = canvas.height / 2;
+
+        const resize = () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        };
+
+        const randomBetween = (min, max) => Math.random() * (max - min) + min;
+
+        const createPoints = () => {
+            points.length = 0;
+            for (let i = 0; i < POINT_COUNT; i += 1) {
+                points.push({
+                    x: randomBetween(0, canvas.width),
+                    y: randomBetween(0, canvas.height),
+                    vx: randomBetween(-SPEED, SPEED),
+                    vy: randomBetween(-SPEED, SPEED),
+                    radius: randomBetween(1.2, 2.8),
+                });
+            }
+        };
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        document.addEventListener('mouseleave', () => {
+            mouseX = canvas.width / 2;
+            mouseY = canvas.height / 2;
+        });
+
+        const animate = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            points.forEach((point, index) => {
+                const dx = mouseX - point.x;
+                const dy = mouseY - point.y;
+                const distToMouse = Math.sqrt(dx * dx + dy * dy);
+
+                if (distToMouse < CURSOR_RANGE) {
+                    const force = (CURSOR_RANGE - distToMouse) / CURSOR_RANGE * 0.15;
+                    point.vx += (dx / distToMouse) * force;
+                    point.vy += (dy / distToMouse) * force;
+                }
+
+                point.vx *= 0.98;
+                point.vy *= 0.98;
+
+                point.x += point.vx;
+                point.y += point.vy;
+
+                if (point.x <= 0 || point.x >= canvas.width) {
+                    point.vx *= -1;
+                }
+                if (point.y <= 0 || point.y >= canvas.height) {
+                    point.vy *= -1;
+                }
+
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, point.radius * 1.5, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(122, 213, 111, 1)';
+                ctx.shadowColor = 'rgba(122, 213, 111, 0.7)';
+                ctx.shadowBlur = 10;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                for (let j = index + 1; j < points.length; j += 1) {
+                    const other = points[j];
+                    const dx = point.x - other.x;
+                    const dy = point.y - other.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < LINE_DISTANCE) {
+                        const alpha = 1 - dist / LINE_DISTANCE;
+                        ctx.strokeStyle = `rgba(122, 213, 111, ${alpha * 0.65})`;
+                        ctx.lineWidth = 1.4;
+                        ctx.beginPath();
+                        ctx.moveTo(point.x, point.y);
+                        ctx.lineTo(other.x, other.y);
+                        ctx.stroke();
+                    }
+                }
+            });
+
+            requestAnimationFrame(animate);
+        };
+
+        window.addEventListener('resize', () => {
+            resize();
+            createPoints();
+        });
+
+        resize();
+        createPoints();
+        animate();
+    </script>
+</body>
+</html>
