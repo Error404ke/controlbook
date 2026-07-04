@@ -55,24 +55,18 @@
             text-align: center;
             margin: 10px 0;
         }
-        .auth-container .link {
-            text-align: center;
+        .auth-container .info {
             color: #aaa;
+            text-align: center;
             margin-top: 15px;
-        }
-        .auth-container .link a {
-            color: #7ad56f;
-            text-decoration: none;
-        }
-        .auth-container .link a:hover {
-            text-decoration: underline;
+            font-size: 14px;
         }
     </style>
 </head>
 <body>
     <canvas id="background-canvas"></canvas>
     <div class="auth-container">
-        <h2>🔐 Login</h2>
+        <h2>🔐 Control Book</h2>
         {% if error %}
             <div class="error">{{ error }}</div>
         {% endif %}
@@ -81,8 +75,8 @@
             <input type="password" name="password" placeholder="Password" required />
             <button type="submit">Login</button>
         </form>
-        <div class="link">
-            Don't have an account? <a href="{{ url_for('register') }}">Register here</a>
+        <div class="info">
+            Default: admin / admin123
         </div>
     </div>
     <script>

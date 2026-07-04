@@ -136,35 +136,6 @@ def login():
     
     return render_template('login.html')
 
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        email = request.form.get('email')
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
-        
-        if password != confirm_password:
-            return render_template('register.html', error='Passwords do not match')
-        
-        if len(password) < 6:
-            return render_template('register.html', error='Password must be at least 6 characters')
-        
-        if User.query.filter_by(username=username).first():
-            return render_template('register.html', error='Username already exists')
-        
-        if User.query.filter_by(email=email).first():
-            return render_template('register.html', error='Email already registered')
-        
-        new_user = User(username=username, email=email)
-        new_user.set_password(password)
-        db.session.add(new_user)
-        db.session.commit()
-        
-        flash('Registration successful! Please login.', 'success')
-        return redirect(url_for('login'))
-    
-    return render_template('register.html')
 
 @app.route('/logout')
 @login_required
