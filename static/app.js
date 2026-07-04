@@ -38,8 +38,8 @@ const buildRow = (product) => {
         <td>${product.quantity}</td>
         <td>${formatKES(Number(product.price))}</td>
         <td class="actions">
-            <button class="sell-button" data-id="${product._id}">Sell</button>
-            <button class="restock-button" data-id="${product._id}">Restock</button>
+            <button class="sell-button" data-id="${product.id}">Sell</button>
+            <button class="restock-button" data-id="${product.id}">Restock</button>
         </td>
     `;
 
@@ -52,7 +52,7 @@ const buildRow = (product) => {
             showMessage('Please enter a valid sell quantity.', 'error');
             return;
         }
-        await postAction(`/sell/${product._id}`, { quantity });
+        await postAction(`/sell/${product.id}`, { quantity });
     });
 
     restockButton.addEventListener('click', async () => {
@@ -61,7 +61,7 @@ const buildRow = (product) => {
             showMessage('Please enter a valid restock quantity.', 'error');
             return;
         }
-        await postAction(`/restock/${product._id}`, { quantity });
+        await postAction(`/restock/${product.id}`, { quantity });
     });
 
     return row;
@@ -70,6 +70,9 @@ const buildRow = (product) => {
 const loadProducts = async () => {
     try {
         const response = await fetch('/products');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const products = await response.json();
 
         productTableBody.innerHTML = '';
@@ -184,6 +187,7 @@ refreshButton.addEventListener('click', () => {
     loadProducts();
     loadSalesSummary();
 });
+
 window.addEventListener('load', () => {
     loadProducts();
     loadSalesSummary();
