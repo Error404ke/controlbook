@@ -147,6 +147,144 @@ def register():
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
+
+# ===== ADMIN ROUTES =====
+@app.route('/admin')
+@login_required
+def admin_dashboard():
+    if not current_user.is_admin:
+        return redirect(url_for('home'))
+    
+    users = User.query.all()
+    products = Product.query.all()
+    transactions = Transaction.query.all()
+    return render_template('admin.html', 
+                         users=users, 
+                         products=products, 
+                         transactions=transactions,
+                         user=current_user)
+
+@app.route('/admin/users')
+@login_required
+def admin_users():
+    if not current_user.is_admin:
+        return redirect(url_for('home'))
+    
+    users = User.query.all()
+    return render_template('admin_users.html', users=users, user=current_user)
+
+@app.route('/admin/users/reset/<int:user_id>', methods=['POST'])
+@login_required
+def admin_reset_password(user_id):
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        if user.id == current_user.id:
+            return jsonify({'error': 'Cannot reset your own password here'}), 400
+        
+        new_password = request.form.get('new_password')
+        if not new_password or len(new_password) < 6:
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        
+        user.set_password(new_password)
+        db.session.commit()
+        
+        return jsonify({'message': f'Password reset for {user.username}'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/users/delete/<int:user_id>', methods=['DELETE'])
+@login_required
+def admin_delete_user(user_id):
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    try:
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        if user.id == current_user.id:
+            return jsonify({'error': 'Cannot delete yourself'}), 400
+        
+        products = Product.query.filter_by(user_id=user_id).all()
+        for product in products:
+            Transaction.query.filter_by(product_id=product.id).delete()
+        Product.query.filter_by(user_id=user_id).delete()
+        
+        db.session.delete(user)
+        db.session.commit()
+        
+        return jsonify({'message': f'User {user.username} deleted'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/products/<int:product_id>', methods=['DELETE'])
+@login_required
+def admin_delete_product(product_id):
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    try:
+        product = Product.query.get(product_id)
+        if not product:
+            return jsonify({'error': 'Product not found'}), 404
+        
+        Transaction.query.filter_by(product_id=product_id).delete()
+        db.session.delete(product)
+        db.session.commit()
+        
+        return jsonify({'message': f'Product {product.name} deleted'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/transactions/clear', methods=['POST'])
+@login_required
+def admin_clear_all_transactions():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    try:
+        Transaction.query.delete()
+        db.session.commit()
+        return jsonify({'message': 'All transactions cleared'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/stats')
+@login_required
+def admin_stats():
+    if not current_user.is_admin:
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    try:
+        total_users = User.query.count()
+        total_products = Product.query.count()
+        total_transactions = Transaction.query.count()
+        
+        sales = Transaction.query.filter_by(type='sale').all()
+        total_revenue = sum(float(t.revenue or 0) for t in sales)
+        
+        active_users = db.session.query(Transaction.user_id).distinct().count()
+        
+        return jsonify({
+            'total_users': total_users,
+            'total_products': total_products,
+            'total_transactions': total_transactions,
+            'total_revenue': total_revenue,
+            'active_users': active_users
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
         
         # Validation
         if password != confirm_password:

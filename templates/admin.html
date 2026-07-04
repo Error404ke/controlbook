@@ -226,18 +226,18 @@
         </div>
 
         <!-- Stats -->
-        <div class="admin-stats" id="stats-container">
+        <div class="admin-stats">
             <div class="stat-card">
                 <h3>Total Users</h3>
-                <div class="number" id="total-users">0</div>
+                <div class="number">{{ users|length }}</div>
             </div>
             <div class="stat-card">
                 <h3>Total Products</h3>
-                <div class="number" id="total-products">0</div>
+                <div class="number">{{ products|length }}</div>
             </div>
             <div class="stat-card">
                 <h3>Total Transactions</h3>
-                <div class="number" id="total-transactions">0</div>
+                <div class="number">{{ transactions|length }}</div>
             </div>
             <div class="stat-card">
                 <h3>Total Revenue</h3>
@@ -411,21 +411,6 @@
             event.target.classList.add('active');
         }
 
-        // Load stats
-        async function loadStats() {
-            try {
-                const response = await fetch('/admin/stats');
-                const data = await response.json();
-                document.getElementById('total-users').textContent = data.total_users || 0;
-                document.getElementById('total-products').textContent = data.total_products || 0;
-                document.getElementById('total-transactions').textContent = data.total_transactions || 0;
-                document.getElementById('total-revenue').textContent = 'KES ' + (data.total_revenue || 0).toFixed(2);
-                document.getElementById('active-users').textContent = data.active_users || 0;
-            } catch (e) {
-                console.error('Error loading stats:', e);
-            }
-        }
-
         // Reset password
         function resetPassword(userId, username) {
             resetUserId = userId;
@@ -467,7 +452,6 @@
                 if (response.ok) {
                     document.getElementById('reset-message').innerHTML = '<p style="color: #7ad56f;">✅ Password reset successfully!</p>';
                     setTimeout(() => closeModal(), 1500);
-                    loadStats();
                 } else {
                     document.getElementById('reset-message').innerHTML = '<p style="color: #ff6b6b;">❌ ' + result.error + '</p>';
                 }
@@ -647,9 +631,6 @@
         resize();
         createPoints();
         animate();
-
-        // Load stats on page load
-        loadStats();
     </script>
 </body>
 </html>
