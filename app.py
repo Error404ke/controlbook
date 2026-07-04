@@ -6,22 +6,25 @@ from flask_sqlalchemy import SQLAlchemy
 from openpyxl import Workbook
 import datetime
 from dotenv import load_dotenv
-from urllib.parse import quote_plus
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# PostgreSQL Configuration
-DB_USER = os.environ.get('DB_USER', 'controlbook_user')
-DB_PASSWORD_RAW = os.environ.get('DB_PASSWORD', 'John@4598')
-DB_PASSWORD = quote_plus(DB_PASSWORD_RAW)  # URL-encode the password
-DB_HOST = os.environ.get('DB_HOST', 'localhost')
-DB_PORT = os.environ.get('DB_PORT', '5432')
-DB_NAME = os.environ.get('DB_NAME', 'controlbook')
+# PostgreSQL Configuration - Use Render's Database URL
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    # Use the full database URL from Render
+    app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+else:
+    # Fallback for local development
+    DB_USER = os.environ.get('DB_USER', 'controlbook_user')
+    DB_PASSWORD = os.environ.get('DB_PASSWORD', 'John@4598')
+    DB_HOST = os.environ.get('DB_HOST', 'localhost')
+    DB_PORT = os.environ.get('DB_PORT', '5432')
+    DB_NAME = os.environ.get('DB_NAME', 'controlbook')
+    app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 
-# Build the connection string with encoded password
-app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -76,7 +79,7 @@ with app.app_context():
     try:
         db.create_all()
         print("✅ PostgreSQL connection successful!")
-        print(f"📁 Database: {DB_NAME}")
+        print(f"📁 Database connected")
     except Exception as e:
         print(f"❌ Connection error: {e}")
 
