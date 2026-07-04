@@ -62,7 +62,6 @@ class Product(db.Model):
     price = db.Column(db.Numeric(10, 2), nullable=False, default=0.00)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     
     transactions = db.relationship('Transaction', backref='product', lazy=True)
     
@@ -86,7 +85,6 @@ class Transaction(db.Model):
     price = db.Column(db.Numeric(10, 2))
     revenue = db.Column(db.Numeric(10, 2))
     date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     
     def to_dict(self):
         return {
@@ -192,7 +190,8 @@ def add_product():
     data['name'] = data['name'].strip()
     data['category'] = data['category'].strip()
     
-    existing = Product.query.filter_by(name=data['name'], user_id=current_user.id).first()
+    # Check if product exists (no user_id filter)
+    existing = Product.query.filter_by(name=data['name']).first()
     if existing:
         return jsonify({'message': 'Product already exists'}), 400
 
@@ -200,8 +199,7 @@ def add_product():
         name=data['name'],
         category=data['category'],
         quantity=data['quantity'],
-        price=data['price'],
-        user_id=current_user.id
+        price=data['price']
     )
     
     db.session.add(product)
@@ -213,7 +211,7 @@ def add_product():
 @login_required
 def get_products():
     try:
-        products = Product.query.filter_by(user_id=current_user.id).all()
+        products = Product.query.all()
         return jsonify([p.to_dict() for p in products])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -222,11 +220,7 @@ def get_products():
 @login_required
 def get_total_sales():
     try:
-        product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
-        transactions = Transaction.query.filter(
-            Transaction.product_id.in_(product_ids),
-            Transaction.type == 'sale'
-        ).all()
+        transactions = Transaction.query.filter_by(type='sale').all()
         
         total_items = sum(t.quantity for t in transactions)
         total_revenue = sum(float(t.revenue or 0) for t in transactions)
@@ -243,11 +237,7 @@ def get_total_sales():
 @login_required
 def download_sales():
     try:
-        product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
-        transactions = Transaction.query.filter(
-            Transaction.product_id.in_(product_ids),
-            Transaction.type == 'sale'
-        ).order_by(Transaction.date).all()
+        transactions = Transaction.query.filter_by(type='sale').order_by(Transaction.date).all()
         
         workbook = Workbook()
         sheet = workbook.active
@@ -296,11 +286,7 @@ def clear_history():
     if validation.get('pin') != CLEAR_HISTORY_PIN:
         return jsonify({'message': 'Invalid PIN'}), 401
 
-    product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
-    Transaction.query.filter(
-        Transaction.product_id.in_(product_ids),
-        Transaction.type == 'sale'
-    ).delete()
+    Transaction.query.filter_by(type='sale').delete()
     db.session.commit()
     
     return jsonify({'message': 'Sales history cleared'}), 200
@@ -316,7 +302,7 @@ def sell_product(product_id):
         data = validation
         quantity = data['quantity']
         
-        product = Product.query.filter_by(id=product_id, user_id=current_user.id).first()
+        product = Product.query.get(product_id)
         if not product:
             return jsonify({'message': 'Product not found'}), 404
             
@@ -333,8 +319,7 @@ def sell_product(product_id):
             type='sale',
             quantity=quantity,
             price=product_price,
-            revenue=revenue,
-            user_id=current_user.id
+            revenue=revenue
         )
         
         db.session.add(transaction)
@@ -357,7 +342,7 @@ def restock_product(product_id):
         data = validation
         quantity = data['quantity']
         
-        product = Product.query.filter_by(id=product_id, user_id=current_user.id).first()
+        product = Product.query.get(product_id)
         if not product:
             return jsonify({'message': 'Product not found'}), 404
 
@@ -366,8 +351,7 @@ def restock_product(product_id):
         transaction = Transaction(
             product_id=product_id,
             type='restock',
-            quantity=quantity,
-            user_id=current_user.id
+            quantity=quantity
         )
         
         db.session.add(transaction)
