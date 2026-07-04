@@ -377,6 +377,18 @@ def validate_json(required_fields):
         return jsonify({'message': 'Missing fields', 'fields': missing}), 400
 
     return data
+@app.route('/admin/clear-products', methods=['POST'])
+@login_required
+def clear_products():
+    try:
+        # Delete all transactions first (foreign key constraint)
+        Transaction.query.delete()
+        Product.query.delete()
+        db.session.commit()
+        return jsonify({'message': 'All products cleared successfully!'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=False)
