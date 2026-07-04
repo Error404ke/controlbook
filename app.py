@@ -8,7 +8,6 @@ from openpyxl import Workbook
 import datetime
 from dotenv import load_dotenv
 from bcrypt import hashpw, gensalt, checkpw
-from functools import wraps
 
 load_dotenv()
 
@@ -36,15 +35,6 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# ===== ADMIN HELPER =====
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not current_user.is_authenticated or not current_user.is_admin:
-            return jsonify({'error': 'Admin access required'}), 403
-        return f(*args, **kwargs)
-    return decorated_function
-
 # ===== USER MODEL =====
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
@@ -53,7 +43,6 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
-    is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     
     def set_password(self, password):
@@ -115,13 +104,13 @@ with app.app_context():
     try:
         db.create_all()
         print("✅ PostgreSQL connection successful!")
-        # Create default admin user if none exists
+        # Create default user if none exists
         if not User.query.filter_by(username='admin').first():
-            admin = User(username='admin', email='admin@example.com', is_admin=True)
+            admin = User(username='admin', email='admin@example.com')
             admin.set_password('admin123')
             db.session.add(admin)
             db.session.commit()
-            print("✅ Default admin user created (username: admin, password: admin123)")
+            print("✅ Default user created (username: admin, password: admin123)")
     except Exception as e:
         print(f"❌ Connection error: {e}")
 
@@ -191,123 +180,6 @@ def logout():
 def home():
     return render_template('index.html', user=current_user)
 
-# ===== ADMIN ROUTES =====
-@app.route('/admin')
-@login_required
-@admin_required
-def admin_dashboard():
-    users = User.query.all()
-    products = Product.query.all()
-    transactions = Transaction.query.all()
-    return render_template('admin.html', 
-                         users=users, 
-                         products=products, 
-                         transactions=transactions,
-                         user=current_user)
-
-@app.route('/admin/users/reset/<int:user_id>', methods=['POST'])
-@login_required
-@admin_required
-def admin_reset_password(user_id):
-    try:
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        if user.id == current_user.id:
-            return jsonify({'error': 'Cannot reset your own password'}), 400
-        
-        new_password = request.form.get('new_password')
-        if not new_password or len(new_password) < 6:
-            return jsonify({'error': 'Password must be at least 6 characters'}), 400
-        
-        user.set_password(new_password)
-        db.session.commit()
-        
-        return jsonify({'message': f'Password reset for {user.username}'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/admin/users/delete/<int:user_id>', methods=['DELETE'])
-@login_required
-@admin_required
-def admin_delete_user(user_id):
-    try:
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({'error': 'User not found'}), 404
-        
-        if user.id == current_user.id:
-            return jsonify({'error': 'Cannot delete yourself'}), 400
-        
-        products = Product.query.filter_by(user_id=user_id).all()
-        for product in products:
-            Transaction.query.filter_by(product_id=product.id).delete()
-        Product.query.filter_by(user_id=user_id).delete()
-        
-        db.session.delete(user)
-        db.session.commit()
-        
-        return jsonify({'message': f'User {user.username} deleted'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/admin/products/<int:product_id>', methods=['DELETE'])
-@login_required
-@admin_required
-def admin_delete_product(product_id):
-    try:
-        product = Product.query.get(product_id)
-        if not product:
-            return jsonify({'error': 'Product not found'}), 404
-        
-        Transaction.query.filter_by(product_id=product_id).delete()
-        db.session.delete(product)
-        db.session.commit()
-        
-        return jsonify({'message': f'Product {product.name} deleted'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/admin/transactions/clear', methods=['POST'])
-@login_required
-@admin_required
-def admin_clear_all_transactions():
-    try:
-        Transaction.query.delete()
-        db.session.commit()
-        return jsonify({'message': 'All transactions cleared'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/admin/stats')
-@login_required
-@admin_required
-def admin_stats():
-    try:
-        total_users = User.query.count()
-        total_products = Product.query.count()
-        total_transactions = Transaction.query.count()
-        
-        sales = Transaction.query.filter_by(type='sale').all()
-        total_revenue = sum(float(t.revenue or 0) for t in sales)
-        
-        active_users = db.session.query(Transaction.user_id).distinct().count()
-        
-        return jsonify({
-            'total_users': total_users,
-            'total_products': total_products,
-            'total_transactions': total_transactions,
-            'total_revenue': total_revenue,
-            'active_users': active_users
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 # ===== PRODUCT ROUTES =====
 @app.route('/products', methods=['POST'])
 @login_required
@@ -341,10 +213,7 @@ def add_product():
 @login_required
 def get_products():
     try:
-        if current_user.is_admin:
-            products = Product.query.all()
-        else:
-            products = Product.query.filter_by(user_id=current_user.id).all()
+        products = Product.query.filter_by(user_id=current_user.id).all()
         return jsonify([p.to_dict() for p in products])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -353,14 +222,11 @@ def get_products():
 @login_required
 def get_total_sales():
     try:
-        if current_user.is_admin:
-            transactions = Transaction.query.filter_by(type='sale').all()
-        else:
-            product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
-            transactions = Transaction.query.filter(
-                Transaction.product_id.in_(product_ids),
-                Transaction.type == 'sale'
-            ).all()
+        product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
+        transactions = Transaction.query.filter(
+            Transaction.product_id.in_(product_ids),
+            Transaction.type == 'sale'
+        ).all()
         
         total_items = sum(t.quantity for t in transactions)
         total_revenue = sum(float(t.revenue or 0) for t in transactions)
@@ -377,14 +243,11 @@ def get_total_sales():
 @login_required
 def download_sales():
     try:
-        if current_user.is_admin:
-            transactions = Transaction.query.filter_by(type='sale').order_by(Transaction.date).all()
-        else:
-            product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
-            transactions = Transaction.query.filter(
-                Transaction.product_id.in_(product_ids),
-                Transaction.type == 'sale'
-            ).order_by(Transaction.date).all()
+        product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
+        transactions = Transaction.query.filter(
+            Transaction.product_id.in_(product_ids),
+            Transaction.type == 'sale'
+        ).order_by(Transaction.date).all()
         
         workbook = Workbook()
         sheet = workbook.active
@@ -433,14 +296,11 @@ def clear_history():
     if validation.get('pin') != CLEAR_HISTORY_PIN:
         return jsonify({'message': 'Invalid PIN'}), 401
 
-    if current_user.is_admin:
-        Transaction.query.filter_by(type='sale').delete()
-    else:
-        product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
-        Transaction.query.filter(
-            Transaction.product_id.in_(product_ids),
-            Transaction.type == 'sale'
-        ).delete()
+    product_ids = [p.id for p in Product.query.filter_by(user_id=current_user.id).all()]
+    Transaction.query.filter(
+        Transaction.product_id.in_(product_ids),
+        Transaction.type == 'sale'
+    ).delete()
     db.session.commit()
     
     return jsonify({'message': 'Sales history cleared'}), 200
@@ -456,11 +316,7 @@ def sell_product(product_id):
         data = validation
         quantity = data['quantity']
         
-        if current_user.is_admin:
-            product = Product.query.get(product_id)
-        else:
-            product = Product.query.filter_by(id=product_id, user_id=current_user.id).first()
-            
+        product = Product.query.filter_by(id=product_id, user_id=current_user.id).first()
         if not product:
             return jsonify({'message': 'Product not found'}), 404
             
@@ -501,11 +357,7 @@ def restock_product(product_id):
         data = validation
         quantity = data['quantity']
         
-        if current_user.is_admin:
-            product = Product.query.get(product_id)
-        else:
-            product = Product.query.filter_by(id=product_id, user_id=current_user.id).first()
-            
+        product = Product.query.filter_by(id=product_id, user_id=current_user.id).first()
         if not product:
             return jsonify({'message': 'Product not found'}), 404
 

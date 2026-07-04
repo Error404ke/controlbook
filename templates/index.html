@@ -10,8 +10,18 @@
     <canvas id="background-canvas"></canvas>
     <div class="app-shell">
         <header>
-            <h1>Control Book</h1>
-            <p>Inventory management for products, sales and restock.</p>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                <div>
+                    <h1>Control Book</h1>
+                    <p>Inventory management for products, sales and restock.</p>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <span style="color: #aaa; font-size: 14px;">👤 {{ user.username }}</span>
+                    <a href="{{ url_for('logout') }}" style="color: #ff6b6b; text-decoration: none; padding: 8px 16px; border: 1px solid #ff6b6b; border-radius: 4px;">
+                        Logout
+                    </a>
+                </div>
+            </div>
         </header>
 
         <section class="card" id="product-form-card">
@@ -37,6 +47,28 @@
             </form>
         </section>
 
+        <section class="card" id="products-card">
+            <div class="section-header">
+                <h2>Products</h2>
+                <button id="refresh-button">Refresh</button>
+            </div>
+            <div id="message" class="message"></div>
+            <table class="product-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Quantity</th>
+                        <th>Price</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="product-table-body">
+                    <tr><td colspan="5">Loading products...</td></tr>
+                </tbody>
+            </table>
+        </section>
+
         <section class="card sales-summary-card">
             <div class="section-header">
                 <h2>Sales Summary</h2>
@@ -48,37 +80,16 @@
             <div class="sales-metrics">
                 <div class="metric">
                     <span class="metric-label">Total items sold</span>
-                    <strong id="sales-count">0</strong>
+                    <span class="metric-value" id="sales-count">0</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Total revenue</span>
-                    <strong id="sales-total">KES 0.00</strong>
+                    <span class="metric-value" id="sales-total">KES 0.00</span>
                 </div>
             </div>
         </section>
-
-        <section class="card">
-            <div class="section-header">
-                <h2>Product Inventory</h2>
-                <button id="refresh-button">Refresh</button>
-            </div>
-            <div id="message" class="message"></div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Category</th>
-                            <th>Quantity</th>
-                            <th>Price</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="product-table-body"></tbody>
-                </table>
-            </div>
-        </section>
     </div>
+
     <script src="/static/app.js"></script>
 </body>
 </html>
