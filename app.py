@@ -1,52 +1,89 @@
-import io
 import os
-import ssl
+import io
 from flask import Flask, request, jsonify, render_template, send_file
 from flask_cors import CORS
-from bson import ObjectId
+from flask_sqlalchemy import SQLAlchemy
 from openpyxl import Workbook
 import datetime
-from pymongo import MongoClient
+from dotenv import load_dotenv
+from urllib.parse import quote_plus
+
+load_dotenv()
 
 app = Flask(__name__)
 
-# MongoDB connection with proper SSL settings
-MONGO_URI = os.environ.get('MONGO_URI', 'mongodb://localhost:27017/msfavour')
+# PostgreSQL Configuration
+DB_USER = os.environ.get('DB_USER', 'controlbook_user')
+DB_PASSWORD_RAW = os.environ.get('DB_PASSWORD', 'John@4598')
+DB_PASSWORD = quote_plus(DB_PASSWORD_RAW)  # URL-encode the password
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_PORT = os.environ.get('DB_PORT', '5432')
+DB_NAME = os.environ.get('DB_NAME', 'controlbook')
 
-try:
-    # Create SSL context
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
+# Build the connection string with encoded password
+app.config['SQLALCHEMY_DATABASE_URI'] = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+# ===== MODELS =====
+class Product(db.Model):
+    __tablename__ = 'products'
     
-    # Connect using the connection string
-    client = MongoClient(
-        MONGO_URI,
-        tls=True,
-        tlsAllowInvalidCertificates=True,
-        tlsAllowInvalidHostnames=True,
-        connectTimeoutMS=30000,
-        socketTimeoutMS=30000,
-        serverSelectionTimeoutMS=30000
-    )
-    # Test connection
-    client.admin.command('ping')
-    print("✅ MongoDB connection successful!")
-    db = client.msfavour
-except Exception as e:
-    print(f"❌ MongoDB connection failed: {e}")
-    db = None
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False, unique=True)
+    category = db.Column(db.String(100), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=0)
+    price = db.Column(db.Numeric(10, 2), nullable=False, default=0.00)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    transactions = db.relationship('Transaction', backref='product', lazy=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'category': self.category,
+            'quantity': self.quantity,
+            'price': float(self.price)
+        }
+
+class Transaction(db.Model):
+    __tablename__ = 'transactions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
+    type = db.Column(db.String(20), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    price = db.Column(db.Numeric(10, 2))
+    revenue = db.Column(db.Numeric(10, 2))
+    date = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'type': self.type,
+            'quantity': self.quantity,
+            'price': float(self.price) if self.price else None,
+            'revenue': float(self.revenue) if self.revenue else None,
+            'date': self.date.isoformat() if self.date else None
+        }
+
+# Create tables
+with app.app_context():
+    try:
+        db.create_all()
+        print("✅ PostgreSQL connection successful!")
+        print(f"📁 Database: {DB_NAME}")
+    except Exception as e:
+        print(f"❌ Connection error: {e}")
 
 CLEAR_HISTORY_PIN = os.environ.get('CLEAR_HISTORY_PIN', '4598')
 CORS(app)
 
-def invalid_object_id(product_id):
-    try:
-        ObjectId(product_id)
-        return False
-    except Exception:
-        return True
-
+# ===== ROUTES =====
 def validate_json(required_fields):
     if not request.is_json:
         return jsonify({'message': 'Request must be JSON'}), 400
@@ -67,9 +104,6 @@ def home():
 
 @app.route('/products', methods=['POST'])
 def add_product():
-    if db is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
     validation = validate_json(['name', 'category', 'quantity', 'price'])
     if isinstance(validation, tuple):
         return validation
@@ -78,100 +112,72 @@ def add_product():
     data['name'] = data['name'].strip()
     data['category'] = data['category'].strip()
     
-    existing_product = db.products.find_one({'name': {'$regex': f'^{data["name"]}$', '$options': 'i'}})
-    if existing_product:
+    # Check if product exists
+    existing = Product.query.filter_by(name=data['name']).first()
+    if existing:
         return jsonify({'message': 'Product already exists'}), 400
 
-    result = db.products.insert_one({
-        'name': data['name'],
-        'category': data['category'],
-        'quantity': data['quantity'],
-        'price': data['price']
-    })
-
-    return jsonify({'message': 'Product added', 'id': str(result.inserted_id)}), 201
+    # Create new product
+    product = Product(
+        name=data['name'],
+        category=data['category'],
+        quantity=data['quantity'],
+        price=data['price']
+    )
+    
+    db.session.add(product)
+    db.session.commit()
+    
+    return jsonify({'message': 'Product added', 'id': product.id}), 201
 
 @app.route('/products', methods=['GET'])
 def get_products():
-    if db is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
     try:
-        products = list(db.products.find())
-        for p in products:
-            p['_id'] = str(p['_id'])
-        return jsonify(products)
+        products = Product.query.all()
+        return jsonify([p.to_dict() for p in products])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/sales/total', methods=['GET'])
 def get_total_sales():
-    if db is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
     try:
-        pipeline = [
-            {'$match': {'type': 'sale'}},
-            {
-                '$group': {
-                    '_id': None,
-                    'totalItems': {'$sum': '$quantity'},
-                    'totalRevenue': {'$sum': '$revenue'},
-                    'saleCount': {'$sum': 1}
-                }
-            }
-        ]
-        result = list(db.transactions.aggregate(pipeline))
-        if not result:
-            return jsonify({'totalItems': 0, 'totalRevenue': 0, 'saleCount': 0})
-
-        totals = result[0]
+        transactions = Transaction.query.filter_by(type='sale').all()
+        
+        total_items = sum(t.quantity for t in transactions)
+        total_revenue = sum(float(t.revenue or 0) for t in transactions)
+        
         return jsonify({
-            'totalItems': totals.get('totalItems', 0),
-            'totalRevenue': totals.get('totalRevenue', 0),
-            'saleCount': totals.get('saleCount', 0)
+            'totalItems': total_items,
+            'totalRevenue': total_revenue,
+            'saleCount': len(transactions)
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/sales/download', methods=['GET'])
 def download_sales():
-    if db is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
     try:
-        sales = list(db.transactions.find({'type': 'sale'}).sort('date', 1))
-
+        transactions = Transaction.query.filter_by(type='sale').order_by(Transaction.date).all()
+        
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = 'Sold Items'
         sheet.append(['Sale Date', 'Product ID', 'Product Name', 'Quantity', 'Unit Price', 'Revenue'])
 
         total_revenue = 0
-        for sale in sales:
-            product_id = sale.get('product_id')
-            product_name = ''
-            if product_id:
-                product = db.products.find_one({'_id': product_id})
-                if product:
-                    product_name = product.get('name', '')
-
-            sale_date = sale.get('date')
-            if isinstance(sale_date, datetime.datetime):
-                sale_date = sale_date.strftime('%Y-%m-%d %H:%M:%S')
-
-            quantity = sale.get('quantity', 0)
-            price = sale.get('price', 0)
-            revenue = sale.get('revenue', 0)
-            total_revenue += revenue or 0
-
+        for t in transactions:
+            product = Product.query.get(t.product_id)
+            product_name = product.name if product else ''
+            
+            total_revenue += float(t.revenue or 0)
+            
             sheet.append([
-                sale_date,
-                str(product_id) if product_id else '',
+                t.date.strftime('%Y-%m-%d %H:%M:%S') if t.date else '',
+                t.product_id,
                 product_name,
-                quantity,
-                price,
-                revenue
+                t.quantity,
+                float(t.price or 0),
+                float(t.revenue or 0)
             ])
 
         sheet.append([])
@@ -192,9 +198,6 @@ def download_sales():
 
 @app.route('/history/clear', methods=['POST'])
 def clear_history():
-    if db is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
     validation = validate_json(['pin'])
     if isinstance(validation, tuple):
         return validation
@@ -202,77 +205,73 @@ def clear_history():
     if validation.get('pin') != CLEAR_HISTORY_PIN:
         return jsonify({'message': 'Invalid PIN'}), 401
 
-    db.transactions.delete_many({})
+    Transaction.query.filter_by(type='sale').delete()
+    db.session.commit()
+    
     return jsonify({'message': 'Sales history cleared'}), 200
 
-@app.route('/sell/<product_id>', methods=['POST'])
+@app.route('/sell/<int:product_id>', methods=['POST'])
 def sell_product(product_id):
-    if db is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
-    if invalid_object_id(product_id):
-        return jsonify({'message': 'Invalid product id'}), 400
-
     validation = validate_json(['quantity'])
     if isinstance(validation, tuple):
         return validation
 
     data = validation
     quantity = data['quantity']
-    product = db.products.find_one({'_id': ObjectId(product_id)})
-
+    
+    product = Product.query.get(product_id)
     if not product:
         return jsonify({'message': 'Product not found'}), 404
-    if product.get('quantity', 0) < quantity:
+        
+    if product.quantity < quantity:
         return jsonify({'message': 'Insufficient quantity'}), 400
 
-    product_price = product.get('price', 0)
+    product_price = float(product.price)
     revenue = quantity * product_price
 
-    db.products.update_one(
-        {'_id': ObjectId(product_id)}, 
-        {'$inc': {'quantity': -quantity}}
+    # Update product quantity
+    product.quantity -= quantity
+    
+    # Create transaction
+    transaction = Transaction(
+        product_id=product_id,
+        type='sale',
+        quantity=quantity,
+        price=product_price,
+        revenue=revenue
     )
-
-    db.transactions.insert_one({
-        'product_id': ObjectId(product_id),
-        'type': 'sale',
-        'quantity': quantity,
-        'price': product_price,
-        'revenue': revenue,
-        'date': datetime.datetime.utcnow()
-    })
+    
+    db.session.add(transaction)
+    db.session.commit()
+    
     return jsonify({'message': 'Product sold'}), 200
 
-@app.route('/restock/<product_id>', methods=['POST'])
+@app.route('/restock/<int:product_id>', methods=['POST'])
 def restock_product(product_id):
-    if db is None:
-        return jsonify({'error': 'Database not connected'}), 500
-    
-    if invalid_object_id(product_id):
-        return jsonify({'message': 'Invalid product id'}), 400
-
     validation = validate_json(['quantity'])
     if isinstance(validation, tuple):
         return validation
 
     data = validation
     quantity = data['quantity']
-
-    product = db.products.find_one({'_id': ObjectId(product_id)})
+    
+    product = Product.query.get(product_id)
     if not product:
         return jsonify({'message': 'Product not found'}), 404
 
-    db.products.update_one(
-        {'_id': ObjectId(product_id)}, 
-        {'$inc': {'quantity': quantity}}
+    # Update product quantity
+    product.quantity += quantity
+    
+    # Create transaction
+    transaction = Transaction(
+        product_id=product_id,
+        type='restock',
+        quantity=quantity
     )
-    db.transactions.insert_one({
-        'product_id': ObjectId(product_id),
-        'type': 'restock',
-        'quantity': quantity,
-        'date': datetime.datetime.utcnow()
-    })
+    
+    db.session.add(transaction)
+    db.session.commit()
+    
     return jsonify({'message': 'Product restocked'}), 200
 
 if __name__ == '__main__':
